@@ -1,0 +1,99 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        String    @id @default(uuid())
+  name      String
+  email     String    @unique
+  password  String    @default("1234")
+  phone     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  bookings  Booking[]
+  reviews   Review[]
+}
+
+model TurfOwner {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  password  String   @default("1234")
+  phone     String?
+  turfs     Turf[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Turf {
+  id           String     @id @default(uuid())
+  ownerId      String
+  owner        TurfOwner  @relation(fields: [ownerId], references: [id])
+  name         String
+  location     String
+  pricePerHour Float
+  status       String     @default("PENDING") // PENDING, APPROVED, REJECTED
+  city         String?
+  area         String?
+  sportType    String?
+  capacity     String?
+  latitude     Float?
+  longitude    Float?
+  amenities    String?
+  images       String?    // JSON array of image URLs
+  slotPrices   String?    // JSON mapping of slot times to prices
+  activeSlots  String?    // JSON array of active slots
+  blockedSlots String     @default("[]")
+  ownerBookedSlots String @default("[]")
+  bookings     Booking[]
+  reviews      Review[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model Booking {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  turfId    String
+  turf      Turf     @relation(fields: [turfId], references: [id])
+  date      String   // Using YYYY-MM-DD
+  startTime String   // e.g., "10:00"
+  endTime   String   // e.g., "11:00"
+  status    String   // PENDING, CONFIRMED, CANCELLED
+  paymentOrderId String?
+  paymentId      String?
+  paymentStatus  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([turfId, date, startTime, endTime])
+}
+
+model Admin {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  phone     String?
+  password  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  rating    Int
+  comment   String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  turfId    String
+  turf      Turf     @relation(fields: [turfId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([userId, turfId]) // One review per user per turf
+}
