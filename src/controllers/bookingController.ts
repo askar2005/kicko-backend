@@ -337,6 +337,37 @@ export const createBookingRecord = async (
   }
 };
 
+const calculateBookingAmount = (booking: {
+  startTime: string;
+  endTime: string;
+  turf: { pricePerHour: number; slotPrices: string | null };
+}) => {
+  const slotLabel = normalizeSlotLabel(`${booking.startTime} - ${booking.endTime}`);
+  let slotPricesMap: Record<string, number> = {};
+
+  try {
+    if (booking.turf.slotPrices) {
+      const parsed = typeof booking.turf.slotPrices === 'string'
+        ? JSON.parse(booking.turf.slotPrices)
+        : booking.turf.slotPrices;
+
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        slotPricesMap = Object.entries(parsed).reduce<Record<string, number>>((acc, [slot, price]) => {
+          const amount = Number(price);
+          if (Number.isFinite(amount)) {
+            acc[normalizeSlotLabel(slot)] = amount;
+          }
+          return acc;
+        }, {});
+      }
+    }
+  } catch {
+    slotPricesMap = {};
+  }
+
+  return slotPricesMap[slotLabel] ?? Number(booking.turf.pricePerHour || 0);
+};
+
 // Create a new booking
 router.post('/', authenticateToken, async (req: Request, res: Response): Promise<any> => {
   const { turfId, date, startTime, endTime } = req.body;
@@ -413,6 +444,39 @@ router.get('/turf/:turfId', authenticateToken, async (req: Request, res: Respons
     res.json(bookings);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch bookings' });
+  }
+});
+
+// Get all payment records for admin finance
+router.get('/admin/payments', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const bookings = await prisma.booking.findMany({
+      where: { status: 'CONFIRMED' },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        turf: { select: { id: true, name: true, pricePerHour: true, slotPrices: true } }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    res.json(
+      bookings.map((booking) => ({
+        id: booking.id,
+        bookingRef: `#${booking.id.slice(0, 6).toUpperCase()}`,
+        userName: booking.user.name,
+        userEmail: booking.user.email,
+        turfName: booking.turf.name,
+        date: booking.date,
+        timeSlot: `${booking.startTime} - ${booking.endTime}`,
+        amount: calculateBookingAmount(booking),
+        status: booking.paymentStatus || booking.status,
+        paymentId: booking.paymentId,
+        paymentOrderId: booking.paymentOrderId,
+        createdAt: booking.createdAt,
+      }))
+    );
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch admin payment records' });
   }
 });
 
