@@ -360,6 +360,33 @@ router.put('/:id/status', authenticateToken, requireRole(['admin']), async (req:
   }
 });
 
+// Delete turf (for Super Admin)
+router.delete('/:id', authenticateToken, requireRole(['admin']), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const turfId = String(req.params.id);
+
+    const turf = await prisma.turf.findUnique({
+      where: { id: turfId },
+      select: { id: true }
+    });
+
+    if (!turf) {
+      return res.status(404).json({ error: 'Turf not found' });
+    }
+
+    await prisma.$transaction([
+      prisma.review.deleteMany({ where: { turfId } }),
+      prisma.booking.deleteMany({ where: { turfId } }),
+      prisma.turf.delete({ where: { id: turfId } }),
+    ]);
+
+    res.json({ success: true, message: 'Turf deleted successfully' });
+  } catch (error) {
+    console.error('Delete turf error:', error);
+    res.status(500).json({ error: 'Failed to delete turf' });
+  }
+});
+
 // Get turf reviews
 router.get('/:id/reviews', async (req: Request, res: Response) => {
   try {

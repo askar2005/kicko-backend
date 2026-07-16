@@ -309,6 +309,29 @@ router.put('/:id/status', authMiddleware_1.authenticateToken, (0, authMiddleware
         res.status(500).json({ error: 'Failed to update turf status' });
     }
 });
+// Delete turf (for Super Admin)
+router.delete('/:id', authMiddleware_1.authenticateToken, (0, authMiddleware_1.requireRole)(['admin']), async (req, res) => {
+    try {
+        const turfId = String(req.params.id);
+        const turf = await prisma.turf.findUnique({
+            where: { id: turfId },
+            select: { id: true }
+        });
+        if (!turf) {
+            return res.status(404).json({ error: 'Turf not found' });
+        }
+        await prisma.$transaction([
+            prisma.review.deleteMany({ where: { turfId } }),
+            prisma.booking.deleteMany({ where: { turfId } }),
+            prisma.turf.delete({ where: { id: turfId } }),
+        ]);
+        res.json({ success: true, message: 'Turf deleted successfully' });
+    }
+    catch (error) {
+        console.error('Delete turf error:', error);
+        res.status(500).json({ error: 'Failed to delete turf' });
+    }
+});
 // Get turf reviews
 router.get('/:id/reviews', async (req, res) => {
     try {
