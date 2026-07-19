@@ -1,4 +1,4 @@
-import express from 'express';
+﻿import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -80,6 +80,8 @@ const calculateBookingRevenue = (booking: {
   return Number(booking.turf.pricePerHour || 0);
 };
 
+app.use(cors());
+
 // Setup Rate Limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -107,8 +109,13 @@ io.on('connection', (socket) => {
   });
 });
 
-app.use(cors());
 app.use(express.json());
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (err instanceof SyntaxError && 'body' in err) {
+    return res.status(400).json({ success: false, error: 'Invalid JSON request body' });
+  }
+  next(err);
+});
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Basic health check
@@ -182,3 +189,7 @@ const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
+
+
+
+
