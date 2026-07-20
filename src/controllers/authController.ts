@@ -11,11 +11,13 @@ const JWT_SECRET = process.env.JWT_SECRET || 'kicko_jwt_secret_token_123_key';
 const isProduction = process.env.NODE_ENV === 'production';
 
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT),
+  secure: false,
   auth: {
     user: process.env.SMTP_EMAIL,
-    pass: process.env.SMTP_PASSWORD
-  }
+    pass: process.env.SMTP_PASSWORD,
+  },
 });
 
 const otpStore = new Map<string, { otp: string; expiresAt: number }>();
