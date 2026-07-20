@@ -1,25 +1,14 @@
 ﻿import 'dotenv/config';
 import { Request, Response, Router } from 'express';
 import { PrismaClient } from '@prisma/client';
-import nodemailer from 'nodemailer';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import { otpEmailHtml, resetEmailHtml, sendOtpEmail } from '../services/emailService';
 
 const router = Router();
 const prisma = new PrismaClient();
 const JWT_SECRET = process.env.JWT_SECRET || 'kicko_jwt_secret_token_123_key';
 const isProduction = process.env.NODE_ENV === 'production';
-
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: 587,
-  secure: false,
-  requireTLS: true,
-  auth: {
-    user: process.env.SMTP_EMAIL,
-    pass: process.env.SMTP_PASSWORD,
-  },
-});
 
 const otpStore = new Map<string, { otp: string; expiresAt: number }>();
 
@@ -64,43 +53,6 @@ const authPayload = (entity: AuthEntity, role: AuthRole) => {
   };
 };
 
-const sendOtpEmail = async (email: string, subject: string, html: string) => {
-  if (!process.env.SMTP_EMAIL || !process.env.SMTP_PASSWORD) {
-    throw new Error('SMTP is not configured');
-  }
-
-  await transporter.sendMail({
-    from: `"Kicko Platform" <${process.env.SMTP_EMAIL}>`,
-    to: email,
-    subject,
-    html
-  });
-};
-
-const otpEmailHtml = (name: string, otp: string) => `
-  <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-    <h2 style="color: #0d9488;">Verify your email address</h2>
-    <p>Hi ${name || 'there'},</p>
-    <p>Thank you for registering on Kicko. Use this One-Time Password to complete registration:</p>
-    <div style="background-color: #f3f4f6; padding: 15px; text-align: center; border-radius: 8px; margin: 20px 0;">
-      <h1 style="letter-spacing: 5px; margin: 0; color: #1f2937;">${otp}</h1>
-    </div>
-    <p>This code will expire in 5 minutes.</p>
-  </div>
-`;
-
-const resetEmailHtml = (name: string, otp: string) => `
-  <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-    <h2 style="color: #0d9488;">Reset your password</h2>
-    <p>Hi ${name || 'there'},</p>
-    <p>You requested a password reset. Use this code:</p>
-    <div style="background-color: #f3f4f6; padding: 15px; text-align: center; border-radius: 8px; margin: 20px 0;">
-      <h1 style="letter-spacing: 5px; margin: 0; color: #1f2937;">${otp}</h1>
-    </div>
-    <p>This code will expire in 5 minutes.</p>
-  </div>
-`;
-
 const safeServerError = (res: Response, message: string, error: unknown) => {
   console.error(message, error);
   return res.status(500).json({ success: false, error: message });
@@ -117,7 +69,7 @@ router.post('/send-otp', async (req: Request, res: Response): Promise<any> => {
     const otp = generateOtp();
     otpStore.set(email, { otp, expiresAt: Date.now() + 5 * 60 * 1000 });
 
-    await sendOtpEmail(email, 'Kicko Verification Code', otpEmailHtml(name, otp));
+    await sendOtpEmail(email, 'Kicko Verification Code', otpEmailHtml(name, otp), name);
 
     res.json({
       success: true,
@@ -300,7 +252,7 @@ router.post('/forgot-password/send-otp', async (req: Request, res: Response): Pr
     const otp = generateOtp();
     otpStore.set(`reset_${email}`, { otp, expiresAt: Date.now() + 5 * 60 * 1000 });
 
-    await sendOtpEmail(email, 'Kicko Password Reset Code', resetEmailHtml(account.name, otp));
+    await sendOtpEmail(email, 'Kicko Password Reset Code', resetEmailHtml(account.name, otp), account.name);
 
     res.json({
       success: true,
