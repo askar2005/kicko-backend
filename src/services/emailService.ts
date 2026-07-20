@@ -1,10 +1,5 @@
 import brevoClient from '../config/brevo';
 
-const DEFAULT_SENDER = {
-  name: 'Kicko Platform',
-  email: process.env.BREVO_SENDER_EMAIL || 'noreply@kicko.com',
-};
-
 export type SendEmailOptions = {
   to: string;
   subject: string;
@@ -18,12 +13,11 @@ export const sendTransactionalEmail = async ({
   html,
   recipientName,
 }: SendEmailOptions): Promise<void> => {
-  if (!process.env.BREVO_API_KEY) {
-    throw new Error('BREVO_API_KEY is not configured');
-  }
-
   await brevoClient.transactionalEmails.sendTransacEmail({
-    sender: DEFAULT_SENDER,
+    sender: {
+      name: 'Kicko Platform',
+      email: process.env.SENDER_EMAIL!,
+    },
     to: [{ email: to, name: recipientName || to }],
     subject,
     htmlContent: html,
