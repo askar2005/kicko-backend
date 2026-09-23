@@ -8,16 +8,17 @@ generator client {
 }
 
 model User {
-  id          String    @id @default(uuid())
-  name        String
-  email       String    @unique
-  password    String    @default("1234")
-  phone       String?
-  firebaseUid String?   @unique
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  bookings    Booking[]
-  reviews     Review[]
+  id                      String                   @id @default(uuid())
+  name                    String
+  email                   String                   @unique
+  password                String                   @default("1234")
+  phone                   String?
+  firebaseUid             String?                  @unique
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  bookings                Booking[]
+  reviews                 Review[]
+  tournamentRegistrations TournamentRegistration[]
 
   @@index([phone])
 }
@@ -34,30 +35,31 @@ model TurfOwner {
 }
 
 model Turf {
-  id           String     @id @default(uuid())
-  ownerId      String
-  owner        TurfOwner  @relation(fields: [ownerId], references: [id])
-  name         String
-  location     String
-  pricePerHour Float
-  status       String     @default("PENDING") // PENDING, APPROVED, REJECTED
-  city         String?
-  area         String?
-  sportType    String?
-  capacity     String?
-  latitude     Float?
-  longitude    Float?
-  amenities    String?
-  images       String?    // JSON array of image URLs
-  slotPrices   String?    // JSON mapping of slot times to prices
-  activeSlots  String?    // JSON array of active slots
-  blockedSlots String     @default("[]")
-  ownerBookedSlots String @default("[]")
-  bookings     Booking[]
-  reviews      Review[]
-  bogoOffers   BOGOOffer[]
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  id               String       @id @default(uuid())
+  ownerId          String
+  owner            TurfOwner    @relation(fields: [ownerId], references: [id])
+  name             String
+  location         String
+  pricePerHour     Float
+  status           String       @default("PENDING") // PENDING, APPROVED, REJECTED
+  city             String?
+  area             String?
+  sportType        String?
+  capacity         String?
+  latitude         Float?
+  longitude        Float?
+  amenities        String?
+  images           String?      // JSON array of image URLs
+  slotPrices       String?      // JSON mapping of slot times to prices
+  activeSlots      String?      // JSON array of active slots
+  blockedSlots     String       @default("[]")
+  ownerBookedSlots String       @default("[]")
+  bookings         Booking[]
+  reviews          Review[]
+  bogoOffers       BOGOOffer[]
+  tournaments      Tournament[]
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 }
 
 model Booking {
@@ -98,6 +100,73 @@ model BOGOOffer {
   @@index([turfId, offerDate])
 }
 
+model Tournament {
+  id                    String                   @id @default(uuid())
+  turfId                String
+  turf                  Turf                     @relation(fields: [turfId], references: [id], onDelete: Cascade)
+  name                  String
+  sport                 String
+  description           String?
+  bannerUrl             String?
+  tournamentType        String                   @default("Knockout") // Knockout, League, League + Knockout
+  registrationStartDate String
+  registrationEndDate   String
+  startDate             String
+  endDate               String
+  matchStartTime        String?
+  reportingTime         String?
+  maxTeams              Int
+  minTeams              Int                      @default(2)
+  playersPerTeam        Int
+  substitutePlayers     Int                      @default(0)
+  registrationType      String                   @default("Team Registration") // Team Registration, Individual Registration
+  registrationFee       Float                    @default(0)
+  paymentRequired       Boolean                  @default(false)
+  firstPrize            String?
+  secondPrize           String?
+  thirdPrize            String?
+  mvpPrize              String?
+  otherPrizes           String?
+  rules                 String?
+  contactName           String
+  contactPhone          String
+  whatsappNumber        String?
+  contactEmail          String?
+  status                String                   @default("Draft") // Draft, Registration Open, Registration Closed, Ongoing, Completed, Cancelled
+  registrations         TournamentRegistration[]
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
+
+  @@index([turfId])
+  @@index([status])
+}
+
+model TournamentRegistration {
+  id                 String     @id @default(uuid())
+  tournamentId       String
+  tournament         Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  userId             String
+  user               User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  registrationId     String     @unique // e.g. KICKO-T-123456
+  teamName           String?
+  captainName        String
+  captainPhone       String
+  captainEmail       String?
+  players            String     // JSON array of player names/details
+  substitutes        String?    // JSON array of substitute names/details
+  registrationStatus String     @default("CONFIRMED") // PENDING, CONFIRMED, REJECTED, CANCELLED
+  paymentStatus      String     @default("FREE") // FREE, PENDING, PAID, FAILED
+  amount             Float      @default(0)
+  paymentOrderId     String?
+  paymentId          String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  @@unique([tournamentId, userId])
+  @@index([tournamentId])
+  @@index([userId])
+}
+
 model Admin {
   id          String   @id @default(uuid())
   name        String
@@ -121,3 +190,4 @@ model Review {
 
   @@unique([userId, turfId]) // One review per user per turf
 }
+
