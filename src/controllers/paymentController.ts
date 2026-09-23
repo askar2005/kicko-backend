@@ -73,10 +73,11 @@ const resolveBookingUser = async ({
   });
 };
 
-const calculateBogoPaymentDetails = (
+const calculateBookingPaymentDetails = (
   turf: any,
   slots: string[],
-  isBogoActive: boolean
+  isBogoActive: boolean,
+  activeDiscounts: Array<{ id: string; slot: string; discountPercentage: number }>
 ) => {
   let slotPricesMap: Record<string, number> = {};
   try {
@@ -95,16 +96,22 @@ const calculateBogoPaymentDetails = (
     console.error('Failed to parse slotPrices JSON:', e);
   }
 
-  const slotPrices = slots.map((slot) => {
+  const slotItems = slots.map((slot) => {
     const norm = slot.replace(/\s*[-\u2013\u2014]\s*/, ' - ').trim();
     const price = slotPricesMap[norm] !== undefined ? slotPricesMap[norm] : Number(turf.pricePerHour || 1200);
-    return { slot: norm, price };
+    const discount = activeDiscounts.find((d) => d.slot === norm);
+    return {
+      slot: norm,
+      price,
+      slotDiscount: discount || null,
+    };
   });
 
-  const totalOriginalPrice = slotPrices.reduce((sum, item) => sum + item.price, 0);
+  const totalOriginalPrice = slotItems.reduce((sum, item) => sum + item.price, 0);
 
   if (isBogoActive && slots.length >= 2) {
-    const freeSlotItem = slotPrices[1] || slotPrices[slotPrices.length - 1];
+    // BOGO Priority: BOGO overrides percentage discount on the 2nd slot
+    const freeSlotItem = slotItems[1] || slotItems[slotItems.length - 1];
     const discountAmount = freeSlotItem.price;
     const payableAmount = Math.max(0, totalOriginalPrice - discountAmount);
 
@@ -115,16 +122,33 @@ const calculateBogoPaymentDetails = (
       discountAmount,
       freeSlot: freeSlotItem.slot,
       isBogo: true,
+      hasSlotDiscount: false,
+      slotItems: slotItems.map((item) => ({ ...item, discountAmount: 0, percentage: 0 })),
     };
   }
 
+  // Calculate percentage discounts for each slot
+  let totalPercentageDiscountAmount = 0;
+  const itemDiscounts = slotItems.map((item) => {
+    if (item.slotDiscount) {
+      const discAmt = (item.price * item.slotDiscount.discountPercentage) / 100;
+      totalPercentageDiscountAmount += discAmt;
+      return { ...item, discountAmount: discAmt, percentage: item.slotDiscount.discountPercentage };
+    }
+    return { ...item, discountAmount: 0, percentage: 0 };
+  });
+
+  const payableAmount = Math.max(0, totalOriginalPrice - totalPercentageDiscountAmount);
+
   return {
-    payableAmountInPaise: Math.round(totalOriginalPrice * 100),
-    payableAmount: totalOriginalPrice,
+    payableAmountInPaise: Math.round(payableAmount * 100),
+    payableAmount,
     totalOriginalPrice,
-    discountAmount: 0,
+    discountAmount: totalPercentageDiscountAmount,
     freeSlot: null,
     isBogo: false,
+    hasSlotDiscount: totalPercentageDiscountAmount > 0,
+    slotItems: itemDiscounts,
   };
 };
 
@@ -164,10 +188,59 @@ router.post('/create-order', async (req: Request, res: Response): Promise<any> =
       }
     });
 
-    const isBogoActive = Boolean(bogoOffer && slots.length >= 2);
-    const bogoDetails = calculateBogoPaymentDetails(turf, slots, isBogoActive);
+    // Check active slot percentage discounts for this turf and date
+    const activeDiscounts = await prisma.slotDiscount.findMany({
+      where: {
+        turfId,
+        date,
+        isActive: true,
+      }
+    });
 
-    const amount = bogoDetails.payableAmountInPaise;
+    const isBogoActive = Boolean(bogoOffer && slots.length >= 2);
+    const paymentDetails = calculateBookingPaymentDetails(turf, slots, isBogoActive, activeDiscounts);
+
+    const amount = paymentDetails.payableAmountInPaise;
+
+    // Handle 100% Discount / Zero Payable Amount (TEST 7)
+    if (amount === 0) {
+      const receipt = `KO_FREE_${Date.now().toString().slice(-8)}`;
+      const bookingResults = await prisma.$transaction(async (tx) => {
+        const createdBookings: Booking[] = [];
+        for (let i = 0; i < slots.length; i++) {
+          const slot = slots[i];
+          const { startTime, endTime } = parseSlot(slot);
+          const item = paymentDetails.slotItems[i];
+          const booking = await createBookingRecord(tx, {
+            userId: user.id,
+            turfId: turfId as string,
+            date: date as string,
+            startTime,
+            endTime,
+            paymentOrderId: receipt,
+            paymentId: 'FREE_100_PERCENT_DISCOUNT',
+            paymentStatus: 'PAID',
+            isBogo: false,
+            discountAmount: item?.discountAmount || item?.price || 0,
+            discountPercentage: item?.percentage || 100,
+            slotDiscountId: item?.slotDiscount?.id || undefined,
+            originalAmount: paymentDetails.totalOriginalPrice,
+          });
+          createdBookings.push(booking);
+        }
+        return createdBookings;
+      });
+
+      return res.status(200).json({
+        isFree: true,
+        message: '100% discount applied. Booking confirmed!',
+        bookings: bookingResults,
+        amount: 0,
+        discountAmount: paymentDetails.totalOriginalPrice,
+        originalAmount: paymentDetails.totalOriginalPrice,
+      });
+    }
+
     const receipt = `KO${Date.now().toString().slice(-8)}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 
     const order = await razorpayClient.orders.create({
@@ -181,9 +254,9 @@ router.post('/create-order', async (req: Request, res: Response): Promise<any> =
         slots: JSON.stringify(slots),
         isBogo: isBogoActive ? 'true' : 'false',
         bogoOfferId: bogoOffer?.id || '',
-        freeSlot: bogoDetails.freeSlot || '',
-        discountAmount: String(bogoDetails.discountAmount),
-        originalAmount: String(bogoDetails.totalOriginalPrice)
+        freeSlot: paymentDetails.freeSlot || '',
+        discountAmount: String(paymentDetails.discountAmount),
+        originalAmount: String(paymentDetails.totalOriginalPrice)
       }
     });
 
@@ -193,10 +266,11 @@ router.post('/create-order', async (req: Request, res: Response): Promise<any> =
       amount,
       currency: 'INR',
       receipt,
-      isBogo: bogoDetails.isBogo,
-      discountAmount: bogoDetails.discountAmount,
-      originalAmount: bogoDetails.totalOriginalPrice,
-      freeSlot: bogoDetails.freeSlot,
+      isBogo: paymentDetails.isBogo,
+      hasSlotDiscount: paymentDetails.hasSlotDiscount,
+      discountAmount: paymentDetails.discountAmount,
+      originalAmount: paymentDetails.totalOriginalPrice,
+      freeSlot: paymentDetails.freeSlot,
     });
   } catch (error: any) {
     console.error('Create order error:', error);
@@ -287,8 +361,17 @@ router.post('/verify-payment', async (req: Request, res: Response): Promise<any>
       }
     });
 
+    // Check active slot percentage discounts for this turf and date
+    const activeDiscounts = await prisma.slotDiscount.findMany({
+      where: {
+        turfId,
+        date,
+        isActive: true,
+      }
+    });
+
     const isBogoActive = Boolean(bogoOffer && slots.length >= 2);
-    const bogoDetails = calculateBogoPaymentDetails(turf, slots, isBogoActive);
+    const paymentDetails = calculateBookingPaymentDetails(turf, slots, isBogoActive, activeDiscounts);
 
     const bookingResults = await prisma.$transaction(async (tx) => {
       const createdBookings: Booking[] = [];
@@ -297,7 +380,8 @@ router.post('/verify-payment', async (req: Request, res: Response): Promise<any>
         const slot = slots[i];
         const { startTime, endTime } = parseSlot(slot);
         const normSlot = slot.replace(/\s*[-\u2013\u2014]\s*/, ' - ').trim();
-        const isThisSlotFree = isBogoActive && normSlot === bogoDetails.freeSlot;
+        const isThisSlotFree = isBogoActive && normSlot === paymentDetails.freeSlot;
+        const item = paymentDetails.slotItems[i];
 
         const booking = await createBookingRecord(tx, {
           userId: user.id,
@@ -310,9 +394,15 @@ router.post('/verify-payment', async (req: Request, res: Response): Promise<any>
           paymentStatus: 'PAID',
           isBogo: isBogoActive,
           bogoOfferId: bogoOffer?.id || undefined,
-          freeSlot: bogoDetails.freeSlot || undefined,
-          discountAmount: isThisSlotFree ? bogoDetails.discountAmount : (isBogoActive ? bogoDetails.discountAmount : 0),
-          originalAmount: bogoDetails.totalOriginalPrice,
+          freeSlot: paymentDetails.freeSlot || undefined,
+          discountAmount: isThisSlotFree
+            ? paymentDetails.discountAmount
+            : item
+            ? item.discountAmount
+            : 0,
+          discountPercentage: item ? item.percentage : 0,
+          slotDiscountId: item?.slotDiscount?.id || undefined,
+          originalAmount: paymentDetails.totalOriginalPrice,
         });
         createdBookings.push(booking);
       }
@@ -325,11 +415,12 @@ router.post('/verify-payment', async (req: Request, res: Response): Promise<any>
       bookings: bookingResults,
       paymentId: razorpay_payment_id,
       orderId: razorpay_order_id,
-      amount: bogoDetails.payableAmountInPaise,
-      isBogo: bogoDetails.isBogo,
-      discountAmount: bogoDetails.discountAmount,
-      originalAmount: bogoDetails.totalOriginalPrice,
-      freeSlot: bogoDetails.freeSlot,
+      amount: paymentDetails.payableAmountInPaise,
+      isBogo: paymentDetails.isBogo,
+      hasSlotDiscount: paymentDetails.hasSlotDiscount,
+      discountAmount: paymentDetails.discountAmount,
+      originalAmount: paymentDetails.totalOriginalPrice,
+      freeSlot: paymentDetails.freeSlot,
     });
   } catch (error: any) {
     console.error('Verify payment error:', error);

@@ -35,13 +35,13 @@ model TurfOwner {
 }
 
 model Turf {
-  id               String       @id @default(uuid())
+  id               String         @id @default(uuid())
   ownerId          String
-  owner            TurfOwner    @relation(fields: [ownerId], references: [id])
+  owner            TurfOwner      @relation(fields: [ownerId], references: [id])
   name             String
   location         String
   pricePerHour     Float
-  status           String       @default("PENDING") // PENDING, APPROVED, REJECTED
+  status           String         @default("PENDING") // PENDING, APPROVED, REJECTED
   city             String?
   area             String?
   sportType        String?
@@ -49,39 +49,42 @@ model Turf {
   latitude         Float?
   longitude        Float?
   amenities        String?
-  images           String?      // JSON array of image URLs
-  slotPrices       String?      // JSON mapping of slot times to prices
-  activeSlots      String?      // JSON array of active slots
-  blockedSlots     String       @default("[]")
-  ownerBookedSlots String       @default("[]")
+  images           String?        // JSON array of image URLs
+  slotPrices       String?        // JSON mapping of slot times to prices
+  activeSlots      String?        // JSON array of active slots
+  blockedSlots     String         @default("[]")
+  ownerBookedSlots String         @default("[]")
   bookings         Booking[]
   reviews          Review[]
   bogoOffers       BOGOOffer[]
   tournaments      Tournament[]
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  slotDiscounts    SlotDiscount[]
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 }
 
 model Booking {
-  id             String   @id @default(uuid())
-  userId         String
-  user           User     @relation(fields: [userId], references: [id])
-  turfId         String
-  turf           Turf     @relation(fields: [turfId], references: [id])
-  date           String   // Using YYYY-MM-DD
-  startTime      String   // e.g., "10:00"
-  endTime        String   // e.g., "11:00"
-  status         String   // PENDING, CONFIRMED, CANCELLED
-  paymentOrderId String?
-  paymentId      String?
-  paymentStatus  String?
-  isBogo         Boolean  @default(false)
-  bogoOfferId    String?
-  freeSlot       String?
-  discountAmount Float    @default(0)
-  originalAmount Float?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                 String   @id @default(uuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id])
+  turfId             String
+  turf               Turf     @relation(fields: [turfId], references: [id])
+  date               String   // Using YYYY-MM-DD
+  startTime          String   // e.g., "10:00"
+  endTime            String   // e.g., "11:00"
+  status             String   // PENDING, CONFIRMED, CANCELLED
+  paymentOrderId     String?
+  paymentId          String?
+  paymentStatus      String?
+  isBogo             Boolean  @default(false)
+  bogoOfferId        String?
+  freeSlot           String?
+  discountAmount     Float    @default(0)
+  discountPercentage Float    @default(0)
+  slotDiscountId     String?
+  originalAmount     Float?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   @@unique([turfId, date, startTime, endTime])
 }
@@ -98,6 +101,22 @@ model BOGOOffer {
 
   @@unique([turfId, offerDate])
   @@index([turfId, offerDate])
+}
+
+model SlotDiscount {
+  id                 String   @id @default(uuid())
+  turfId             String
+  turf               Turf     @relation(fields: [turfId], references: [id], onDelete: Cascade)
+  date               String   // YYYY-MM-DD
+  slot               String   // Normalized slot label e.g. "06:00 - 07:00"
+  discountPercentage Float
+  label              String?
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([turfId, date, slot])
+  @@index([turfId, date])
 }
 
 model Tournament {

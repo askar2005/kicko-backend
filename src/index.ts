@@ -12,6 +12,7 @@ import turfController from './controllers/turfController';
 import authController from './controllers/authController';
 import bogoController from './controllers/bogoController';
 import tournamentController from './controllers/tournamentController';
+import slotDiscountController from './controllers/slotDiscountController';
 
 dotenv.config();
 
@@ -187,6 +188,7 @@ app.use('/api/turfs', turfController);
 app.use('/api/auth', authController);
 app.use('/api/bogo-offers', bogoController);
 app.use('/api/tournaments', tournamentController);
+app.use('/api/slot-discounts', slotDiscountController);
 
 const PORT = process.env.PORT || 5000;
 

@@ -18,6 +18,8 @@ export type BookingPayload = {
   bogoOfferId?: string;
   freeSlot?: string;
   discountAmount?: number;
+  discountPercentage?: number;
+  slotDiscountId?: string;
   originalAmount?: number;
 };
 
@@ -336,6 +338,8 @@ export const createBookingRecord = async (
         bogoOfferId: bookingData.bogoOfferId || null,
         freeSlot: bookingData.freeSlot || null,
         discountAmount: bookingData.discountAmount || 0,
+        discountPercentage: bookingData.discountPercentage || 0,
+        slotDiscountId: bookingData.slotDiscountId || null,
         originalAmount: bookingData.originalAmount || null,
       }
     });
