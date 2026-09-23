@@ -14,6 +14,11 @@ export type BookingPayload = {
   paymentOrderId?: string;
   paymentId?: string;
   paymentStatus?: string;
+  isBogo?: boolean;
+  bogoOfferId?: string;
+  freeSlot?: string;
+  discountAmount?: number;
+  originalAmount?: number;
 };
 
 export const normalizeSlotLabel = (slot: string) =>
@@ -326,7 +331,12 @@ export const createBookingRecord = async (
         status: 'CONFIRMED',
         paymentOrderId: bookingData.paymentOrderId,
         paymentId: bookingData.paymentId,
-        paymentStatus: bookingData.paymentStatus
+        paymentStatus: bookingData.paymentStatus,
+        isBogo: bookingData.isBogo ?? false,
+        bogoOfferId: bookingData.bogoOfferId || null,
+        freeSlot: bookingData.freeSlot || null,
+        discountAmount: bookingData.discountAmount || 0,
+        originalAmount: bookingData.originalAmount || null,
       }
     });
   } catch (error: any) {

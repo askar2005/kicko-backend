@@ -73,24 +73,59 @@ const resolveBookingUser = async ({
   });
 };
 
-const calculateTotalAmount = (turf: any, slots: string[]): number => {
-  let slotPricesMap: Record<string, any> = {};
+const calculateBogoPaymentDetails = (
+  turf: any,
+  slots: string[],
+  isBogoActive: boolean
+) => {
+  let slotPricesMap: Record<string, number> = {};
   try {
     if (turf.slotPrices) {
-      slotPricesMap = typeof turf.slotPrices === 'string' ? JSON.parse(turf.slotPrices) : turf.slotPrices;
+      const parsed = typeof turf.slotPrices === 'string' ? JSON.parse(turf.slotPrices) : turf.slotPrices;
+      if (parsed && typeof parsed === 'object') {
+        Object.entries(parsed).forEach(([slot, price]) => {
+          const amount = Number(price);
+          if (Number.isFinite(amount)) {
+            slotPricesMap[slot.replace(/\s*[-\u2013\u2014]\s*/, ' - ').trim()] = amount;
+          }
+        });
+      }
     }
   } catch (e) {
     console.error('Failed to parse slotPrices JSON:', e);
   }
 
-  let totalSlotsPrice = 0;
-  for (const slot of slots) {
-    const priceVal = slotPricesMap[slot];
-    const price = priceVal !== undefined ? parseFloat(String(priceVal)) : turf.pricePerHour;
-    totalSlotsPrice += price;
+  const slotPrices = slots.map((slot) => {
+    const norm = slot.replace(/\s*[-\u2013\u2014]\s*/, ' - ').trim();
+    const price = slotPricesMap[norm] !== undefined ? slotPricesMap[norm] : Number(turf.pricePerHour || 1200);
+    return { slot: norm, price };
+  });
+
+  const totalOriginalPrice = slotPrices.reduce((sum, item) => sum + item.price, 0);
+
+  if (isBogoActive && slots.length >= 2) {
+    const freeSlotItem = slotPrices[1] || slotPrices[slotPrices.length - 1];
+    const discountAmount = freeSlotItem.price;
+    const payableAmount = Math.max(0, totalOriginalPrice - discountAmount);
+
+    return {
+      payableAmountInPaise: Math.round(payableAmount * 100),
+      payableAmount,
+      totalOriginalPrice,
+      discountAmount,
+      freeSlot: freeSlotItem.slot,
+      isBogo: true,
+    };
   }
 
-  return Math.round(totalSlotsPrice * 100);
+  return {
+    payableAmountInPaise: Math.round(totalOriginalPrice * 100),
+    payableAmount: totalOriginalPrice,
+    totalOriginalPrice,
+    discountAmount: 0,
+    freeSlot: null,
+    isBogo: false,
+  };
 };
 
 router.post('/create-order', async (req: Request, res: Response): Promise<any> => {
@@ -120,7 +155,19 @@ router.post('/create-order', async (req: Request, res: Response): Promise<any> =
 
     await ensureSlotsAreBookable(prisma, turfId, slots, date);
 
-    const amount = calculateTotalAmount(turf, slots);
+    // Check active BOGO offer for this turf and date
+    const bogoOffer = await prisma.bOGOOffer.findFirst({
+      where: {
+        turfId,
+        offerDate: date,
+        isActive: true,
+      }
+    });
+
+    const isBogoActive = Boolean(bogoOffer && slots.length >= 2);
+    const bogoDetails = calculateBogoPaymentDetails(turf, slots, isBogoActive);
+
+    const amount = bogoDetails.payableAmountInPaise;
     const receipt = `KO${Date.now().toString().slice(-8)}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 
     const order = await razorpayClient.orders.create({
@@ -131,7 +178,12 @@ router.post('/create-order', async (req: Request, res: Response): Promise<any> =
         userId: user.id,
         turfId,
         date,
-        slots: JSON.stringify(slots)
+        slots: JSON.stringify(slots),
+        isBogo: isBogoActive ? 'true' : 'false',
+        bogoOfferId: bogoOffer?.id || '',
+        freeSlot: bogoDetails.freeSlot || '',
+        discountAmount: String(bogoDetails.discountAmount),
+        originalAmount: String(bogoDetails.totalOriginalPrice)
       }
     });
 
@@ -140,7 +192,11 @@ router.post('/create-order', async (req: Request, res: Response): Promise<any> =
       order,
       amount,
       currency: 'INR',
-      receipt
+      receipt,
+      isBogo: bogoDetails.isBogo,
+      discountAmount: bogoDetails.discountAmount,
+      originalAmount: bogoDetails.totalOriginalPrice,
+      freeSlot: bogoDetails.freeSlot,
     });
   } catch (error: any) {
     console.error('Create order error:', error);
@@ -222,11 +278,27 @@ router.post('/verify-payment', async (req: Request, res: Response): Promise<any>
 
     await ensureSlotsAreBookable(prisma, turfId, slots, date);
 
+    // Check active BOGO offer for metadata logging
+    const bogoOffer = await prisma.bOGOOffer.findFirst({
+      where: {
+        turfId,
+        offerDate: date,
+        isActive: true,
+      }
+    });
+
+    const isBogoActive = Boolean(bogoOffer && slots.length >= 2);
+    const bogoDetails = calculateBogoPaymentDetails(turf, slots, isBogoActive);
+
     const bookingResults = await prisma.$transaction(async (tx) => {
       const createdBookings: Booking[] = [];
 
-      for (const slot of slots) {
+      for (let i = 0; i < slots.length; i++) {
+        const slot = slots[i];
         const { startTime, endTime } = parseSlot(slot);
+        const normSlot = slot.replace(/\s*[-\u2013\u2014]\s*/, ' - ').trim();
+        const isThisSlotFree = isBogoActive && normSlot === bogoDetails.freeSlot;
+
         const booking = await createBookingRecord(tx, {
           userId: user.id,
           turfId: turfId as string,
@@ -235,7 +307,12 @@ router.post('/verify-payment', async (req: Request, res: Response): Promise<any>
           endTime,
           paymentOrderId: razorpay_order_id,
           paymentId: razorpay_payment_id,
-          paymentStatus: 'PAID'
+          paymentStatus: 'PAID',
+          isBogo: isBogoActive,
+          bogoOfferId: bogoOffer?.id || undefined,
+          freeSlot: bogoDetails.freeSlot || undefined,
+          discountAmount: isThisSlotFree ? bogoDetails.discountAmount : (isBogoActive ? bogoDetails.discountAmount : 0),
+          originalAmount: bogoDetails.totalOriginalPrice,
         });
         createdBookings.push(booking);
       }
@@ -248,7 +325,11 @@ router.post('/verify-payment', async (req: Request, res: Response): Promise<any>
       bookings: bookingResults,
       paymentId: razorpay_payment_id,
       orderId: razorpay_order_id,
-      amount: calculateTotalAmount(turf, slots)
+      amount: bogoDetails.payableAmountInPaise,
+      isBogo: bogoDetails.isBogo,
+      discountAmount: bogoDetails.discountAmount,
+      originalAmount: bogoDetails.totalOriginalPrice,
+      freeSlot: bogoDetails.freeSlot,
     });
   } catch (error: any) {
     console.error('Verify payment error:', error);

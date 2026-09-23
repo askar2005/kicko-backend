@@ -55,27 +55,47 @@ model Turf {
   ownerBookedSlots String @default("[]")
   bookings     Booking[]
   reviews      Review[]
+  bogoOffers   BOGOOffer[]
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 }
 
 model Booking {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  turfId    String
-  turf      Turf     @relation(fields: [turfId], references: [id])
-  date      String   // Using YYYY-MM-DD
-  startTime String   // e.g., "10:00"
-  endTime   String   // e.g., "11:00"
-  status    String   // PENDING, CONFIRMED, CANCELLED
+  id             String   @id @default(uuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id])
+  turfId         String
+  turf           Turf     @relation(fields: [turfId], references: [id])
+  date           String   // Using YYYY-MM-DD
+  startTime      String   // e.g., "10:00"
+  endTime        String   // e.g., "11:00"
+  status         String   // PENDING, CONFIRMED, CANCELLED
   paymentOrderId String?
   paymentId      String?
   paymentStatus  String?
+  isBogo         Boolean  @default(false)
+  bogoOfferId    String?
+  freeSlot       String?
+  discountAmount Float    @default(0)
+  originalAmount Float?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([turfId, date, startTime, endTime])
+}
+
+model BOGOOffer {
+  id        String   @id @default(uuid())
+  turfId    String
+  turf      Turf     @relation(fields: [turfId], references: [id], onDelete: Cascade)
+  offerDate String   // YYYY-MM-DD
+  offerType String   @default("BUY_1_GET_1")
+  isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([turfId, date, startTime, endTime])
+  @@unique([turfId, offerDate])
+  @@index([turfId, offerDate])
 }
 
 model Admin {

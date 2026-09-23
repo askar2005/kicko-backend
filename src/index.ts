@@ -1,4 +1,4 @@
-﻿import express from 'express';
+import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -10,6 +10,7 @@ import bookingController from './controllers/bookingController';
 import paymentController from './controllers/paymentController';
 import turfController from './controllers/turfController';
 import authController from './controllers/authController';
+import bogoController from './controllers/bogoController';
 
 dotenv.config();
 
@@ -183,6 +184,7 @@ app.use('/api/bookings', bookingController);
 app.use('/api/payments', paymentController);
 app.use('/api/turfs', turfController);
 app.use('/api/auth', authController);
+app.use('/api/bogo-offers', bogoController);
 
 const PORT = process.env.PORT || 5000;
 
